@@ -125,7 +125,7 @@ public:
     int32_t UpdateImsRttCallMode(int32_t callId, ImsRTTCallMode mode);
     int32_t UnInitRttManager();
     void RefreshRttManager(const CallDetailInfo &callInfo);
-    int32_t SendRttMessage(const std::string &rttMessage);
+    int32_t SendRttMessage(int32_t callId, const std::string &rttMessage);
 #endif
     // invite calls to participate conference
     int32_t JoinConference(int32_t callId, std::vector<std::u16string> &numberList);

@@ -349,6 +349,7 @@ if (call_manager_feature_not_support_multicall) {
 
 if (call_manager_feature_support_rtt) {
   call_manager_defines += [ "SUPPORT_RTT_CALL" ]
+  call_manager_external_deps += [ "icu:shared_icuuc" ]
 
   call_manager_include_dirs += [
     "${call_manager_path}/services/rtt_call/include"

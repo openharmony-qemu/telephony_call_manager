@@ -1933,7 +1933,7 @@ int32_t CallManagerService::SendRttMessage(int32_t callId, const std::string &rt
         TELEPHONY_LOGE("callControlManagerPtr_ is nullptr!");
         return TELEPHONY_ERR_LOCAL_PTR_NULL;
     }
-    return callControlManagerPtr_->SendRttMessage(rttMessage);
+    return callControlManagerPtr_->SendRttMessage(callId, rttMessage);
 }
 
 int32_t CallManagerService::UpdateImsRttCallMode(int32_t callId, ImsRTTCallMode mode)

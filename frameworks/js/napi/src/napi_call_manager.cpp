@@ -45,6 +45,94 @@ int32_t NapiCallManager::registerStatus_ = TELEPHONY_ERROR;
 constexpr int32_t INVALID_ACCOUNT_ID = -1;
 constexpr int32_t MAX_ACCOUNT_ID = 1;
 
+struct PublicCallEnumMember {
+    const char *name;
+    int32_t value;
+};
+
+template<size_t Count>
+static napi_status RegisterPublicCallEnum(napi_env env, napi_value exports, const char *name,
+    const PublicCallEnumMember (&members)[Count])
+{
+    napi_value enumeration = nullptr;
+    napi_status status = napi_create_object(env, &enumeration);
+    if (status != napi_ok) {
+        return status;
+    }
+    for (const auto &member : members) {
+        napi_value value = nullptr;
+        status = napi_create_int32(env, member.value, &value);
+        if (status != napi_ok) {
+            return status;
+        }
+        status = napi_set_named_property(env, enumeration, member.name, value);
+        if (status != napi_ok) {
+            return status;
+        }
+    }
+    return napi_set_named_property(env, exports, name, enumeration);
+}
+
+static napi_value RegisterPublicCallEnums(napi_env env, napi_value exports)
+{
+    const PublicCallEnumMember detailed[] = {
+        {"CCALL_STATE_UNKNOWN", static_cast<int32_t>(TelCallState::CALL_STATUS_UNKNOWN)},
+        {"CCALL_STATE_ACTIVE", static_cast<int32_t>(TelCallState::CALL_STATUS_ACTIVE)},
+        {"CCALL_STATE_HOLDING", static_cast<int32_t>(TelCallState::CALL_STATUS_HOLDING)},
+        {"CCALL_STATE_DIALING", static_cast<int32_t>(TelCallState::CALL_STATUS_DIALING)},
+        {"CCALL_STATE_ALERTING", static_cast<int32_t>(TelCallState::CALL_STATUS_ALERTING)},
+        {"CCALL_STATE_INCOMING", static_cast<int32_t>(TelCallState::CALL_STATUS_INCOMING)},
+        {"CCALL_STATE_WAITING", static_cast<int32_t>(TelCallState::CALL_STATUS_WAITING)},
+        {"CCALL_STATE_DISCONNECTED", static_cast<int32_t>(TelCallState::CALL_STATUS_DISCONNECTED)},
+        {"CCALL_STATE_DISCONNECTING", static_cast<int32_t>(TelCallState::CALL_STATUS_DISCONNECTING)},
+        {"CCALL_STATE_IDLE", static_cast<int32_t>(TelCallState::CALL_STATUS_IDLE)},
+        {"CCALL_STATE_ANSWERED", static_cast<int32_t>(TelCallState::CALL_STATUS_ANSWERED)},
+    };
+    const PublicCallEnumMember state[] = {
+        {"TEL_CALL_STATE_UNKNOWN", static_cast<int32_t>(CallStateToApp::CALL_STATE_UNKNOWN)},
+        {"TEL_CALL_STATE_IDLE", static_cast<int32_t>(CallStateToApp::CALL_STATE_IDLE)},
+        {"TEL_CALL_STATE_RINGING", static_cast<int32_t>(CallStateToApp::CALL_STATE_RINGING)},
+        {"TEL_CALL_STATE_OFFHOOK", static_cast<int32_t>(CallStateToApp::CALL_STATE_OFFHOOK)},
+        {"TEL_CALL_STATE_ANSWERED", static_cast<int32_t>(CallStateToApp::CALL_STATE_ANSWERED)},
+        // Public API 26 value. Defining this constant does not synthesize a
+        // connection event or alter the service's older native state machine.
+        {"TEL_CALL_STATE_CONNECTED", 4},
+    };
+    const PublicCallEnumMember rtt[] = {
+        {"RTT_STATE_NO", static_cast<int32_t>(RttCallState::RTT_STATE_NO)},
+        {"RTT_STATE_YES", static_cast<int32_t>(RttCallState::RTT_STATE_YES)},
+        {"RTT_STATE_REMOTE_TTY", static_cast<int32_t>(RttCallState::RTT_STATE_REMOTE_TTY)},
+        {"RTT_STATE_REMOTE_NOT_SUPPORT", static_cast<int32_t>(RttCallState::RTT_STATE_REMOTE_NOT_SUPPORT)},
+    };
+    // These are public protocol constants even on products without RTT. The
+    // optional feature chooses real RTT methods/service code, not enum values.
+    const PublicCallEnumMember mode[] = {
+        {"LOCAL_REQUEST_UPGRADE", 0},
+        {"LOCAL_REQUEST_DOWNGRADE", 1},
+        {"REMOTE_REQUEST_UPGRADE_LOCAL_ACCEPT", 2},
+        {"REMOTE_REQUEST_UPGRADE_LOCAL_REJECT", 3},
+    };
+#ifdef SUPPORT_RTT_CALL
+    static_assert(static_cast<int32_t>(ImsRTTCallMode::LOCAL_REQUEST_UPGRADE) == 0);
+    static_assert(static_cast<int32_t>(ImsRTTCallMode::LOCAL_REQUEST_DOWNGRADE) == 1);
+    static_assert(static_cast<int32_t>(ImsRTTCallMode::REMOTE_REQUEST_UPGRADE_LOCAL_ACCEPT) == 2);
+    static_assert(static_cast<int32_t>(ImsRTTCallMode::REMOTE_REQUEST_UPGRADE_LOCAL_REJECT) == 3);
+#endif
+    const PublicCallEnumMember extended[] = {
+        {"XCALL_ECALL_TYPE", 0},
+        {"XCALL_BCALL_TYPE", 1},
+        {"XCALL_ICALL_TYPE", 2},
+    };
+    if (RegisterPublicCallEnum(env, exports, "CCallState", detailed) != napi_ok ||
+        RegisterPublicCallEnum(env, exports, "TelCallState", state) != napi_ok ||
+        RegisterPublicCallEnum(env, exports, "RttState", rtt) != napi_ok ||
+        RegisterPublicCallEnum(env, exports, "ImsRttMode", mode) != napi_ok ||
+        RegisterPublicCallEnum(env, exports, "XCallType", extended) != napi_ok) {
+        return nullptr;
+    }
+    return exports;
+}
+
 NapiCallManager::NapiCallManager() {}
 
 NapiCallManager::~NapiCallManager()
@@ -252,22 +340,16 @@ napi_value NapiCallManager::OnRttErrCause(napi_env env, napi_callback_info info)
 
 napi_value NapiCallManager::OffRttModifyInd(napi_env env, napi_callback_info info)
 {
-    GET_PARAMS(env, info, ONLY_ONE_VALUE);
-    if ((argc != ONLY_ONE_VALUE) ||
-        (!NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
+    // Request one extra argument so surplus arguments are not silently accepted.
+    GET_PARAMS(env, info, TWO_VALUE_LIMIT);
+    bool noCallback = argc == 0 || (argc == ONLY_ONE_VALUE &&
+        NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_undefined));
+    if (argc > ONLY_ONE_VALUE || (!noCallback &&
+        !NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
         NapiUtil::ThrowParameterError(env);
         return nullptr;
     }
-
-    auto asyncContext = std::make_unique<AsyncContext>();
-    if (asyncContext == nullptr) {
-        TELEPHONY_LOGE("OffRttModifyInd asyncContext nullptr.");
-        NapiUtil::ThrowParameterError(env);
-        return nullptr;
-    }
-
     if (registerStatus_ != TELEPHONY_SUCCESS) {
-        TELEPHONY_LOGE("OffRttModifyInd registerCallBack failed!");
         if (registerStatus_ == TELEPHONY_ERR_PERMISSION_ERR) {
             NapiUtil::ThrowError(env, JS_ERROR_TELEPHONY_PERMISSION_DENIED, OBSERVER_OFF_JS_PERMISSION_ERROR_STRING);
             return nullptr;
@@ -276,31 +358,23 @@ napi_value NapiCallManager::OffRttModifyInd(napi_env env, napi_callback_info inf
         NapiUtil::ThrowError(env, error.errorCode, error.errorMessage);
         return nullptr;
     }
-
-    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttModifyIndCallback();
-    napi_create_reference(env, argv[ARRAY_INDEX_FIRST], DATA_LENGTH_ONE, &(asyncContext->callbackRef));
-    return HandleAsyncWork(
-        env, asyncContext.release(), "offRttModifyInd", [](napi_env env, void *data) {}, NativeOffCallBack);
+    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttModifyIndCallback(
+        env, noCallback ? nullptr : argv[ARRAY_INDEX_FIRST]);
+    return NapiCallManagerUtils::CreateUndefined(env);
 }
 
 napi_value NapiCallManager::OffReceiveRttMessage(napi_env env, napi_callback_info info)
 {
-    GET_PARAMS(env, info, ONLY_ONE_VALUE);
-    if ((argc != ONLY_ONE_VALUE) ||
-        (!NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
+    // Request one extra argument so surplus arguments are not silently accepted.
+    GET_PARAMS(env, info, TWO_VALUE_LIMIT);
+    bool noCallback = argc == 0 || (argc == ONLY_ONE_VALUE &&
+        NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_undefined));
+    if (argc > ONLY_ONE_VALUE || (!noCallback &&
+        !NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
         NapiUtil::ThrowParameterError(env);
         return nullptr;
     }
-
-    auto asyncContext = std::make_unique<AsyncContext>();
-    if (asyncContext == nullptr) {
-        TELEPHONY_LOGE("OffReceiveRttMessage asyncContext is nullptr.");
-        NapiUtil::ThrowParameterError(env);
-        return nullptr;
-    }
-
     if (registerStatus_ != TELEPHONY_SUCCESS) {
-        TELEPHONY_LOGE("OffReceiveRttMessage registerCallBack failed!");
         if (registerStatus_ == TELEPHONY_ERR_PERMISSION_ERR) {
             NapiUtil::ThrowError(env, JS_ERROR_TELEPHONY_PERMISSION_DENIED, OBSERVER_OFF_JS_PERMISSION_ERROR_STRING);
             return nullptr;
@@ -309,29 +383,23 @@ napi_value NapiCallManager::OffReceiveRttMessage(napi_env env, napi_callback_inf
         NapiUtil::ThrowError(env, error.errorCode, error.errorMessage);
         return nullptr;
     }
-    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttCallMessageCallback();
-    napi_create_reference(env, argv[ARRAY_INDEX_FIRST], DATA_LENGTH_ONE, &(asyncContext->callbackRef));
-    return HandleAsyncWork(
-        env, asyncContext.release(), "offReceiveRttMessage", [](napi_env env, void *data) {}, NativeOffCallBack);
+    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttCallMessageCallback(
+        env, noCallback ? nullptr : argv[ARRAY_INDEX_FIRST]);
+    return NapiCallManagerUtils::CreateUndefined(env);
 }
 
 napi_value NapiCallManager::OffRttErrCause(napi_env env, napi_callback_info info)
 {
-    GET_PARAMS(env, info, ONLY_ONE_VALUE);
-    if ((argc != ONLY_ONE_VALUE) ||
-        (!NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
+    // Request one extra argument so surplus arguments are not silently accepted.
+    GET_PARAMS(env, info, TWO_VALUE_LIMIT);
+    bool noCallback = argc == 0 || (argc == ONLY_ONE_VALUE &&
+        NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_undefined));
+    if (argc > ONLY_ONE_VALUE || (!noCallback &&
+        !NapiCallManagerUtils::MatchValueType(env, argv[ARRAY_INDEX_FIRST], napi_function))) {
         NapiUtil::ThrowParameterError(env);
         return nullptr;
     }
-    auto asyncContext = std::make_unique<AsyncContext>();
-    if (asyncContext == nullptr) {
-        TELEPHONY_LOGE("OffRttErrCause asyncContext is nullptr.");
-        NapiUtil::ThrowParameterError(env);
-        return nullptr;
-    }
-
     if (registerStatus_ != TELEPHONY_SUCCESS) {
-        TELEPHONY_LOGE("OffRttErrCause registerCallBack failed!");
         if (registerStatus_ == TELEPHONY_ERR_PERMISSION_ERR) {
             NapiUtil::ThrowError(env, JS_ERROR_TELEPHONY_PERMISSION_DENIED, OBSERVER_OFF_JS_PERMISSION_ERROR_STRING);
             return nullptr;
@@ -340,12 +408,9 @@ napi_value NapiCallManager::OffRttErrCause(napi_env env, napi_callback_info info
         NapiUtil::ThrowError(env, error.errorCode, error.errorMessage);
         return nullptr;
     }
-    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttErrCauseCallback();
-    if (argc == ONLY_ONE_VALUE) {
-        napi_create_reference(env, argv[ARRAY_INDEX_FIRST], DATA_LENGTH_ONE, &(asyncContext->callbackRef));
-    }
-    return HandleAsyncWork(
-        env, asyncContext.release(), "offRttErrCause", [](napi_env env, void *data) {}, NativeOffCallBack);
+    DelayedSingleton<NapiCallAbilityCallback>::GetInstance()->UnRegisterRttErrCauseCallback(
+        env, noCallback ? nullptr : argv[ARRAY_INDEX_FIRST]);
+    return NapiCallManagerUtils::CreateUndefined(env);
 }
 #endif
 
@@ -1163,6 +1228,9 @@ napi_value NapiCallManager::RegisterCallManagerFunc(napi_env env, napi_value exp
     DeclareMmiCodeResultEnum(env, exports);
     DeclareDisconnectedReasonEnum(env, exports);
     DeclareMarkTypeEnum(env, exports);
+    if (RegisterPublicCallEnums(env, exports) == nullptr) {
+        return nullptr;
+    }
     Init();
     RegisterCallBack();
     return exports;

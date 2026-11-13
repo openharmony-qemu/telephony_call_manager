@@ -16,6 +16,10 @@
 #ifndef NATIVE_COMMON_TYPE_H
 #define NATIVE_COMMON_TYPE_H
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+
 #include "call_manager_inner_type.h"
 #include "napi/native_api.h"
 #include "napi/native_node_api.h"
@@ -301,14 +305,27 @@ struct RttAsyncContext : AsyncContext {
     std::string rttMessage = "";
 };
 
+struct RttCallbackRegistration {
+    EventCallback callback {};
+    std::atomic<bool> active { true };
+    std::mutex callbackMutex;
+    // The cleanup hook owns this independent shared_ptr until removal or env teardown.
+    std::shared_ptr<RttCallbackRegistration>* cleanupData = nullptr;
+};
+
 struct RttCallEvtWork {
     RttEvent eventInfo;
-    EventCallback callback;
+    std::shared_ptr<RttCallbackRegistration> registration;
 };
 
 struct RttCallErrorWork {
     RttError errorInfo;
-    EventCallback callback;
+    std::shared_ptr<RttCallbackRegistration> registration;
+};
+
+struct RttCallMessageWork {
+    AppExecFwk::PacMap info;
+    std::shared_ptr<RttCallbackRegistration> registration;
 };
 #endif
 } // namespace Telephony

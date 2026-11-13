@@ -16,6 +16,7 @@
 #include "rtt_call_listener.h"
 
 #include "ims_rtt_manager.h"
+#include "ims_rtt_errcode.h"
 #include "call_manager_errors.h"
 #include "telephony_log_wrapper.h"
 
@@ -50,7 +51,8 @@ void RttCallListener::InitRttManager(sptr<IMSCall> &imsCall)
     if (imsCall == nullptr) {
         return;
     }
-    if (imsCall->GetRttState() != RttCallState::RTT_STATE_YES) {
+    if (imsCall->GetRttState() != RttCallState::RTT_STATE_YES ||
+        imsCall->GetTelCallState() != TelCallState::CALL_STATUS_ACTIVE || imsCall->GetCallID() <= 0) {
         TELEPHONY_LOGI("cannot InitRttManager, rttState: %{public}d", imsCall->GetRttState());
         return;
     }
@@ -63,7 +65,16 @@ void RttCallListener::InitRttManager(sptr<IMSCall> &imsCall)
         rttManager_->SetCallID(currCallID);
         rttManager_->SetChannelID(currChannelID);
     }
-    rttManager_->InitRtt();
+    int32_t result = rttManager_->InitRtt();
+    if (result != RTT_SUCCESS) {
+        TELEPHONY_LOGE("InitRtt failed: %{public}d", result);
+        rttManager_->DestroyRtt();
+        rttManager_ = nullptr;
+        rttCallId_ = -1;
+        imsCall->SetPrevRtt(false);
+        return;
+    }
+    rttCallId_ = currCallID;
     imsCall->SetPrevRtt(true);
     TELEPHONY_LOGI("InitRtt success, callId: %{public}d, channelId: %{public}d", currCallID, currChannelID);
 }
@@ -72,6 +83,7 @@ void RttCallListener::UnInitRttManager()
 {
     TELEPHONY_LOGI("Start to UnInitRttManager");
     std::lock_guard<ffrt::mutex> lock(mutex_);
+    rttCallId_ = -1;
     if (rttManager_ == nullptr) {
         TELEPHONY_LOGI("RttManager already un-initialized");
         return;
@@ -81,12 +93,15 @@ void RttCallListener::UnInitRttManager()
     rttManager_ = nullptr;
 }
 
-int32_t RttCallListener::SendRttMessage(const std::string &rttMessage)
+int32_t RttCallListener::SendRttMessage(int32_t callId, const std::string &rttMessage)
 {
     std::lock_guard<ffrt::mutex> lock(mutex_);
     if (rttManager_ == nullptr) {
         TELEPHONY_LOGE("rttManager_ is nullptr!");
         return TELEPHONY_ERR_LOCAL_PTR_NULL;
+    }
+    if (callId <= 0 || callId != rttCallId_) {
+        return CALL_ERR_INVALID_CALLID;
     }
 
     return rttManager_->SendRttMessage(rttMessage);

@@ -2361,14 +2361,28 @@ void CallControlManager::RefreshRttManager(const CallDetailInfo &callInfo)
     rttCallListener_->InitRttManager(imsCall);
 }
 
-int32_t CallControlManager::SendRttMessage(const std::string &rttMessage)
+int32_t CallControlManager::SendRttMessage(int32_t callId, const std::string &rttMessage)
 {
+    if (callId <= 0) {
+        return CALL_ERR_INVALID_CALLID;
+    }
+    sptr<CallBase> call = CallObjectManager::GetOneCallObject(callId);
+    if (call == nullptr) {
+        return CALL_ERR_INVALID_CALLID;
+    }
+    if (call->GetCallType() != CallType::TYPE_IMS ||
+        call->GetTelCallState() != TelCallState::CALL_STATUS_ACTIVE) {
+        return CALL_ERR_CALL_STATE_MISMATCH_OPERATION;
+    }
+    sptr<IMSCall> imsCall = reinterpret_cast<IMSCall *>(call.GetRefPtr());
+    if (imsCall->GetRttState() != RttCallState::RTT_STATE_YES) {
+        return CALL_ERR_CALL_STATE_MISMATCH_OPERATION;
+    }
     if (rttCallListener_ == nullptr) {
         return TELEPHONY_ERR_LOCAL_PTR_NULL;
     }
 
-    rttCallListener_->SendRttMessage(rttMessage);
-    return TELEPHONY_SUCCESS;
+    return rttCallListener_->SendRttMessage(callId, rttMessage);
 }
 #endif
 

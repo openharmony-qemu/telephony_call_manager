@@ -30,10 +30,11 @@ public:
     void CallStateUpdated(sptr<CallBase> &callObjectPtr, TelCallState priorState, TelCallState nextState) override;
     void InitRttManager(sptr<IMSCall> &imsCall);
     void UnInitRttManager();
-    int32_t SendRttMessage(const std::string &rttMessage);
+    int32_t SendRttMessage(int32_t callId, const std::string &rttMessage);
 
 private:
     std::shared_ptr<ImsRttManager> rttManager_ = nullptr;
+    int32_t rttCallId_ = -1; // protected by mutex_; assigned only after real InitRtt succeeds
     ffrt::mutex mutex_;
 };
 } // namespace Telephony

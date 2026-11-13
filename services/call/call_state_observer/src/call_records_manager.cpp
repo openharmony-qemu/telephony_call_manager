@@ -168,7 +168,7 @@ void CallRecordsManager::RefreshRttFlag(sptr<CallBase> &callObjectPtr, CallAttri
 {
     if (callObjectPtr->GetCallType() == CallType::TYPE_IMS) {
         sptr<IMSCall> imsCall = reinterpret_cast<IMSCall *>(callObjectPtr.GetRefPtr());
-        info.isPrevRtt = imsCall->GetIsPrevRtt();
+        info.isPrevRtt = imsCall->IsPrevRtt();
     }
 }
 #endif

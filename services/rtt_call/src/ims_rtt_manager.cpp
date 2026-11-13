@@ -276,6 +276,9 @@ void ImsRttManager::DestroyRtt()
 int32_t ImsRttManager::SendRttMessage(const std::string &rttMessage)
 {
     std::lock_guard<ffrt::mutex> lock(sendMtx_);
+    if (devFd_.load() <= 0 || !sendThreadActive_.load() || !recvThreadActive_.load()) {
+        return RTT_ERR_PROXY_CLOSED;
+    }
     sendStream_.append(rttMessage);
     sendCond_.notify_one();
     return RTT_SUCCESS;

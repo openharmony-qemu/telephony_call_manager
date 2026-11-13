@@ -16,7 +16,10 @@
 #ifndef NAPI_CALL_ABILITY_CALLBACK_H
 #define NAPI_CALL_ABILITY_CALLBACK_H
 
+#include <memory>
+#include <mutex>
 #include <uv.h>
+#include <vector>
 #include "ffrt.h"
 
 #include "pac_map.h"
@@ -96,11 +99,11 @@ public:
     void RegisterStopRttCallback(EventCallback callback);
     void UnRegisterStopRttCallback();
     void RegisterRttModifyIndCallback(EventCallback eventCallback);
-    void UnRegisterRttModifyIndCallback();
+    void UnRegisterRttModifyIndCallback(napi_env env, napi_value callback = nullptr);
     void RegisterRttErrCauseCallback(EventCallback eventCallback);
-    void UnRegisterRttErrCauseCallback();
+    void UnRegisterRttErrCauseCallback(napi_env env, napi_value callback = nullptr);
     void RegisterRttCallMessageCallback(EventCallback eventCallback);
-    void UnRegisterRttCallMessageCallback();
+    void UnRegisterRttCallMessageCallback(napi_env env, napi_value callback = nullptr);
     int32_t ReportRttCallEventInfo(const RttEvent &info);
     int32_t ReportRttCallErrorInfo(const RttError &info);
     int32_t ReportRttCallMessageInfo(AppExecFwk::PacMap &resultInfo);
@@ -195,9 +198,9 @@ private:
     EventCallback cameraCapabilitiesCallback_;
     EventCallback callSessionEventCallback_;
 #ifdef SUPPORT_RTT_CALL
-    EventCallback rttModifyIndCallback_;
-    EventCallback rttErrCauseCallback_;
-    EventCallback rttCallMessageCallback_;
+    std::vector<std::shared_ptr<RttCallbackRegistration>> rttModifyIndCallbacks_;
+    std::vector<std::shared_ptr<RttCallbackRegistration>> rttErrCauseCallbacks_;
+    std::vector<std::shared_ptr<RttCallbackRegistration>> rttCallMessageCallbacks_;
 #endif
     using CallResultReportIdProcessorFunc = std::function<int32_t(AppExecFwk::PacMap &resultInfo)>;
     std::map<CallResultReportId, CallResultReportIdProcessorFunc> memberFuncMap_;
@@ -210,9 +213,9 @@ private:
     std::mutex setWaitingCallbackMutex_;
     std::mutex getWaitingCallbackMutex_;
 #ifdef SUPPORT_RTT_CALL
-    ffrt::mutex rttCallEvtChangeCallbackMutex_;
-    ffrt::mutex rttCallErrCauseCallbackMutex_;
-    ffrt::mutex rttCallMessageCallbackMutex_;
+    std::mutex rttCallEvtChangeCallbackMutex_;
+    std::mutex rttCallErrCauseCallbackMutex_;
+    std::mutex rttCallMessageCallbackMutex_;
     ffrt::mutex startRttCallbackMutex_;
     ffrt::mutex stopRttCallbackMutex_;
 #endif
